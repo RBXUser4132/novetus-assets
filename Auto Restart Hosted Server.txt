@@ -1,0 +1,519 @@
+-- Hosted Server auto-restore script by amx1390 for 2008+ clients
+-- Place this script on Workspace's "Camera" instance to be untouchable from exploiters
+
+-- Script detects leaving players, if no players left, it will recreate 
+-- everything like joining a brand new roblox server
+
+local function GetServiceSafe(serviceName)
+	local success, service = pcall(function()
+		return  game:getService(serviceName)
+	end)
+	if success and service then
+		return service
+	end
+	local success, service = pcall(function()
+		return  game[serviceName]
+	end)
+	if success and service then
+		return service
+	end
+	return nil
+end
+
+local Players = GetServiceSafe("Players")
+local NetworkServer = GetServiceSafe("NetworkServer")
+local Workspace = GetServiceSafe("Workspace")
+local Lighting = GetServiceSafe("Lighting")
+local StarterPack = GetServiceSafe("StarterPack")
+local StarterGui = GetServiceSafe("StarterGui")
+local Chat = GetServiceSafe("Chat")
+local SoundService = GetServiceSafe("SoundService")
+local FriendService = GetServiceSafe("FriendService")
+
+local backups = {
+	Workspace = {},
+	Lighting = {},
+	StarterPack = {},
+	StarterGui = {},
+	Chat = {},
+	SoundService = {},
+	FriendService = {},
+	Players = {},
+	LightingProps = {},
+	SoundProps = {}
+}
+
+local isResetting = false
+local currentVotes = {} 
+
+local function BackupProperties(service, propNames)
+	local props = {}
+	if service then
+		for _, prop in pairs(propNames) do
+			pcall(function()
+				props[prop] = service[prop]
+			end)
+		end
+	end
+	return props
+end
+
+local function BackupServer()
+	if Workspace then
+		for _, child in pairs(Workspace:getChildren()) do
+			if child.className ~= "Camera" and child.className ~= "Terrain" then
+				local s, clone = pcall(function() return child:clone() end)
+				if s and clone then
+					table.insert(backups.Workspace, clone)
+				end
+			end
+		end
+	end
+
+	if Lighting then
+		for _, child in pairs(Lighting:getChildren()) do
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then
+				table.insert(backups.Lighting, clone)
+			end
+		end
+		backups.LightingProps = BackupProperties(Lighting, {
+			"Ambient", "Brightness", "ColorShift_Bottom", "ColorShift_Top",
+			"ShadowColor", "TimeOfDay", "FogColor", "FogEnd", "FogStart"
+		})
+	end
+
+	if StarterPack then
+		for _, child in pairs(StarterPack:getChildren()) do
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then
+				table.insert(backups.StarterPack, clone)
+			end
+		end
+	end
+
+	if StarterGui then
+		for _, child in pairs(StarterGui:getChildren()) do
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then
+				table.insert(backups.StarterGui, clone)
+			end
+		end
+	end
+
+	if Chat then
+		for _, child in pairs(Chat:getChildren()) do
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then
+				table.insert(backups.Chat, clone)
+			end
+		end
+	end
+
+	if FriendService then
+		for _, child in pairs(FriendService:getChildren()) do
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then
+				table.insert(backups.FriendService, clone)
+			end
+		end
+	end
+
+	if SoundService then
+		for _, child in pairs(SoundService:getChildren()) do
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then
+				table.insert(backups.SoundService, clone)
+			end
+		end
+		backups.SoundProps = BackupProperties(SoundService, {
+			"AmbientReverb", "DistanceFactor", "DopplerScale", "RolloffScale"
+		})
+	end
+
+	if Players then
+		for _, child in pairs(Players:getChildren()) do
+			if child.className ~= "Player" then
+				local s, clone = pcall(function() return child:clone() end)
+				if s and clone then
+					table.insert(backups.Players, clone)
+				end
+			end
+		end
+	end
+
+	print("Novetus Auto-Host: Initial server state backed up.")
+end
+
+local function ResetServer()
+	print("Novetus Auto-Host: Resetting server state...")
+
+	local protectedCharacters = {}
+	if Players and Workspace then
+		for _, player in pairs(Players:getChildren()) do
+			if player.className == "Player" then
+				pcall(function()
+					if player.Character and player.Character.Parent == Workspace then
+						protectedCharacters[player.Character] = true
+					end
+				end)
+			end
+		end
+	end
+
+	if Workspace then
+		for _, child in pairs(Workspace:getChildren()) do
+			if child.className ~= "Camera" and child.className ~= "Terrain" and not protectedCharacters[child] then
+				pcall(function() child:Remove() end)
+			end
+		end
+	end
+
+	local function ClearService(service)
+		if service then
+			for _, child in pairs(service:getChildren()) do
+				pcall(function() child:Remove() end)
+			end
+		end
+	end
+
+	ClearService(Lighting)
+	ClearService(StarterPack)
+	ClearService(StarterGui)
+	ClearService(Chat)
+	ClearService(FriendService)
+	ClearService(SoundService)
+
+	if Players then
+		for _, child in pairs(Players:getChildren()) do 
+			if child.className ~= "Player" then
+				pcall(function() child:Remove() end) 
+			end
+		end
+	end
+
+	local function RestoreItem(item, parent, isScriptPhase)
+		if not parent then return end
+		local isScript = (item.className == "Script") or (item.className == "LocalScript")
+
+		if (isScriptPhase and isScript) or (not isScriptPhase and not isScript) then
+			pcall(function()
+				local clonedItem = item:clone()
+				if clonedItem then
+					clonedItem.Parent = parent
+					if parent == Workspace then
+						pcall(function() clonedItem:makeJoints() end)
+					end
+				end
+			end)
+		end
+	end
+
+	local function RestoreItems(itemList, parent, isScriptPhase)
+		for _, item in pairs(itemList) do
+			RestoreItem(item, parent, isScriptPhase)
+		end
+	end
+
+	RestoreItems(backups.Workspace, Workspace, false)
+	RestoreItems(backups.Lighting, Lighting, false)
+
+	if Lighting then
+		for propName, propValue in pairs(backups.LightingProps) do 
+			pcall(function() Lighting[propName] = propValue end) 
+		end
+	end
+
+	RestoreItems(backups.StarterPack, StarterPack, false)
+	RestoreItems(backups.StarterGui, StarterGui, false)
+	RestoreItems(backups.Chat, Chat, false)
+	RestoreItems(backups.FriendService, FriendService, false)
+	RestoreItems(backups.SoundService, SoundService, false)
+	RestoreItems(backups.Players, Players, false)
+
+	if SoundService then
+		for propName, propValue in pairs(backups.SoundProps) do 
+			pcall(function() SoundService[propName] = propValue end) 
+		end
+	end
+
+	RestoreItems(backups.Workspace, Workspace, true)
+	RestoreItems(backups.Lighting, Lighting, true)
+	RestoreItems(backups.StarterPack, StarterPack, true)
+	RestoreItems(backups.StarterGui, StarterGui, true)
+	RestoreItems(backups.Chat, Chat, true)
+	RestoreItems(backups.FriendService, FriendService, true)
+	RestoreItems(backups.SoundService, SoundService, true)
+	RestoreItems(backups.Players, Players, true)
+
+	pcall(function() FriendService.Name = "FriendService" end)
+	pcall(function() SoundService.Name = "SoundService" end)
+	pcall(function() Lighting.Name = "Lighting" end)
+	pcall(function() Chat.Name = "Chat" end)
+
+	print("Novetus Auto-Host: Server successfully restored (Scripts initialized last).")
+end
+
+local function BackupDelayedChildren(timeout)
+	local connections = {}
+
+	if Lighting then
+		local LAdded = Lighting.ChildAdded:connect(function(child)		
+			wait()
+			if child.className == "Model" and child.Name == "CoreDialogScripts" then return end
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.Lighting, clone) end
+		end)
+		table.insert(connections, LAdded)
+	end
+
+	if Workspace then
+		local WAdded = Workspace.ChildAdded:connect(function(child)		
+			wait()
+			if child.className == "Script" and child.Name == "ResetCommand" then return end
+			if child.className == "Hint" or child.className == "Message" then return end
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.Workspace, clone) end
+		end)
+		table.insert(connections, WAdded)
+	end
+
+	if StarterPack then
+		local SPAdded = StarterPack.ChildAdded:connect(function(child)		
+			wait()
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.StarterPack, clone) end
+		end)
+		table.insert(connections, SPAdded)
+	end
+
+	if StarterGui then
+		local SGAdded = StarterGui.ChildAdded:connect(function(child)		
+			wait()
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.StarterGui, clone) end
+		end)
+		table.insert(connections, SGAdded)
+	end
+
+	if Chat then
+		local CAdded = Chat.ChildAdded:connect(function(child)		
+			wait()
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.Chat, clone) end
+		end)
+		table.insert(connections, CAdded)
+	end
+
+	if FriendService then
+		local FAdded = FriendService.ChildAdded:connect(function(child)		
+			wait()
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.FriendService, clone) end
+		end)
+		table.insert(connections, FAdded)
+	end
+
+	if SoundService then
+		local SSAdded = SoundService.ChildAdded:connect(function(child)		
+			wait()
+			local s, clone = pcall(function() return child:clone() end)
+			if s and clone then table.insert(backups.SoundService, clone) end
+		end)
+		table.insert(connections, SSAdded)
+	end
+
+	if Players then
+		local PAdded = Players.ChildAdded:connect(function(child)		
+			wait()
+			if child.className ~= "Player" then
+				local s, clone = pcall(function() return child:clone() end)
+				if s and clone then table.insert(backups.Players, clone) end
+			end
+		end)
+		table.insert(connections, PAdded)
+	end
+
+	wait(timeout)
+
+	for _, conn in pairs(connections) do
+		pcall(function() conn:disconnect() end)
+	end
+
+	print("Novetus Auto-Host: Delayed Children backed up.")
+end
+
+local function GetPlayerCount()
+	local count = 0
+	if Players then
+		for _, child in pairs(Players:getChildren()) do
+			if child.className == "Player" then
+				local isServer = false
+				pcall(function() 
+					if child.Name == "[SERVER]" and child.userId == -1 then 
+						isServer = true 
+					end 
+				end)
+				if not isServer then
+					count = count + 1
+				end
+			end
+		end
+	end
+	return count
+end
+
+local function ShowGlobalHint(msgText)
+	if not Workspace then return end
+	pcall(function()
+		local hint = Instance.new("Hint")
+		hint.Text = msgText
+		hint.Parent = Workspace
+		delay(4, function()
+			if hint and hint.Parent then
+				pcall(function() hint:Remove() end)
+			end
+		end)
+	end)
+end
+
+local function HandleChatCommands(player, msg)
+	if isResetting then return end
+	local lowerMsg = string.lower(msg)
+
+	if lowerMsg == "cleanupserver" and player.Name == "amx1390" then
+		isResetting = true
+		ShowGlobalHint("Server cleanup initiated by owner " .. player.Name .. "...")
+		wait(2)
+		ResetServer()
+		currentVotes = {}
+		isResetting = false
+
+	elseif lowerMsg == "voteclean" then
+		if not currentVotes[player.Name] then
+			currentVotes[player.Name] = true
+
+			local voteCount = 0
+			for _, _ in pairs(currentVotes) do voteCount = voteCount + 1 end
+
+			local activePlayers = GetPlayerCount()
+			local requiredVotes = math.floor(activePlayers / 2) + 1
+
+			ShowGlobalHint(player.Name .. " has voted to reset the server! (" .. voteCount .. "/" .. requiredVotes .. " votes needed)")
+
+			if voteCount >= requiredVotes then
+				isResetting = true
+				wait(2)
+				ShowGlobalHint("Vote passed! Resetting server...")
+				wait(2)
+				ResetServer()
+				currentVotes = {} 
+				isResetting = false
+			end
+		end
+	end
+end
+
+if Players then
+	Players.ChildAdded:connect(function(child)
+		if child.className == "Player" then
+			child.Chatted:connect(function(msg)
+				HandleChatCommands(child, msg)
+			end)
+		end
+	end)
+
+	for _, child in pairs(Players:getChildren()) do
+		if child.className == "Player" then
+			child.Chatted:connect(function(msg)
+				HandleChatCommands(child, msg)
+			end)
+		end
+	end
+end
+
+local function CheckPlayerCount()
+	if isResetting then return end
+
+	if GetPlayerCount() == 0 then
+		isResetting = true
+		wait(2)
+		if GetPlayerCount() == 0 then
+			ResetServer()
+			currentVotes = {} 
+		end
+		isResetting = false
+	end
+end
+
+local function NGetPlayerCount()
+	local count = 0
+	if NetworkServer then
+		for _, child in pairs(NetworkServer:getChildren()) do
+			if child.className == "ServerReplicator" then
+				count = count + 1
+			end
+		end
+	end
+	return count
+end
+
+local function NCheckPlayerCount()
+	if isResetting then return end
+
+	if NGetPlayerCount() == 0 then
+		isResetting = true
+		wait(2)
+		if NGetPlayerCount() == 0 then
+			ResetServer()
+			currentVotes = {} 
+		end
+		isResetting = false
+	end
+end
+
+if Players then
+	Players.ChildRemoved:connect(function(child)
+		if child.className == "Player" then
+			if currentVotes[child.Name] then
+				currentVotes[child.Name] = nil
+			end
+
+			local isServer = false
+			pcall(function() 
+				if child.Name == "[SERVER]" and child.userId == -1 then 
+					isServer = true 
+				end 
+			end)
+
+			if not isServer then
+				wait()
+				CheckPlayerCount()
+			end
+		end
+	end)
+end
+
+if NetworkServer then
+	NetworkServer.ChildRemoved:connect(function(child)
+		if child.className == "ServerReplicator" then
+			wait()
+			NCheckPlayerCount()
+		end
+	end)
+end
+
+BackupServer()
+BackupDelayedChildren(6)
+
+if Players then
+	for _, child in pairs(Players:getChildren()) do
+		if child.className == "Player" then
+			pcall(function()
+				if (child.Name == "[SERVER]" and child.userId == -1) then
+					child:Remove()
+				end
+			end)
+		end
+	end
+end
